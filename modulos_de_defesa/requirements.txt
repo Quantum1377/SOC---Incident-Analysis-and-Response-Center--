@@ -1,0 +1,3 @@
+pyyaml
+paramiko # Exemplo, caso precisemos de SSH para algo, ou para conectar em outros servidores
+watchdog # Para monitorar mudanças em arquivos de log
