@@ -1,8 +1,8 @@
 # Configuração global para os módulos de defesa
 # Exemplo:
-# ssh_protection:
-#   enabled: true
-#   log_file: /var/log/auth.log
-#   threshold: 5       # Número de falhas antes de bloquear
-#   time_window: 300   # Janela de tempo em segundos para contagem das falhas (5 minutos)
-#   block_duration: 3600 # Duração do bloqueio em segundos (1 hora)
+ssh_protection:
+  enabled: true
+  log_file: test_auth.log
+  threshold: 5
+  time_window: 300
+  block_duration: 3600
