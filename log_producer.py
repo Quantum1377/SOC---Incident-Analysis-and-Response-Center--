@@ -1,9 +1,7 @@
-
 import asyncio
 import time
 import logging
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+import json
 
 EVENT_BUS_HOST = '127.0.0.1'
 EVENT_BUS_PORT = 9999
@@ -61,6 +59,7 @@ async def tail_log_and_publish():
             await writer.wait_closed()
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     # Ensure the log file exists before starting
     with open(LOG_FILE_TO_WATCH, 'a'):
         pass

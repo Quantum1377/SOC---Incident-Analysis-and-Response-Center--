@@ -1,8 +1,8 @@
-
 import asyncio
 import logging
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 EVENT_BUS_HOST = '127.0.0.1'
 EVENT_BUS_PORT = 9999
