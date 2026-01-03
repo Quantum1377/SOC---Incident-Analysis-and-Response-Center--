@@ -24,16 +24,16 @@ services:
       - soc_network
 
   # Exemplo de serviço para o MISP
-  misp:
-    image: misp/misp
-    container_name: misp
-    ports:
-      - "8080:80"
-    environment:
-      - MISP_BASEURL=http://localhost:8080
-      # Adicione outras configurações do MISP aqui
-    networks:
-      - soc_network
+  # misp:
+  #   image: misp/misp
+  #   container_name: misp
+  #   ports:
+  #     - "8080:80"
+  #   environment:
+  #     - MISP_BASEURL=http://localhost:8080
+  #     # Adicione outras configurações do MISP aqui
+  #   networks:
+  #     - soc_network
 
   # Exemplo de serviço para Wazuh (Manager e Indexer)
   wazuh_manager:
@@ -52,7 +52,7 @@ services:
     image: wazuh/wazuh-indexer:4.3.10
     container_name: wazuh_indexer
     ports:
-      - "9200:9200" # Exemplo, se não usar Elastic
+      - "9201:9200" # Exemplo, se não usar Elastic
     environment:
       - WAZUH_REGISTRATION_ENABLED=true
       # Adicione outras configurações do Wazuh aqui

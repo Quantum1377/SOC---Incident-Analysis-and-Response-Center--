@@ -1,139 +1,112 @@
-
-import asyncio
-import time
+import os
 import re
-import yaml
-import json
-import logging
+import time
 from collections import defaultdict, deque
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+from .response import block_ip
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-EVENT_BUS_HOST = '127.0.0.1'
-EVENT_BUS_PORT = 9999
-CLIENT_NAME = 'SSH-Monitor'
-
-class SSHMonitor:
+class SSHLogHandler(FileSystemEventHandler):
     def __init__(self, config):
         self.config = config
-        self.failed_attempts = defaultdict(lambda: deque(maxlen=self.config['threshold']))
-        self.blocked_ips = {}
+        self.log_file = config['log_file']
+        self.failed_attempts = defaultdict(lambda: deque())
+        self.blocked_ips = {} # IP -> unblock_time
+
+        # Regex para 'Failed password for user from IP'
         self.fail_regex = re.compile(
-            r"Failed password for (?:invalid user )?(\S+) from (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) port \d+"
+            r"Failed password for (?:invalid user )?.*? from (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"
         )
-        self._writer = None
-        self._shutdown = asyncio.Event()
-        self.logger = logging.getLogger(CLIENT_NAME)
-
-    async def connect_to_bus(self):
+        
         try:
-            reader, self._writer = await asyncio.open_connection(EVENT_BUS_HOST, EVENT_BUS_PORT)
-            self.logger.info("Connected to event bus.")
-            return reader
-        except ConnectionRefusedError:
-            self.logger.error("Connection to event bus refused.")
-            return None
+            self.file = open(self.log_file, 'r')
+            self.file.seek(0, 2)  # Vai para o final do arquivo
+        except FileNotFoundError:
+            print(f"ERRO [SSH]: O arquivo de log '{self.log_file}' não foi encontrado.")
+            self.file = None
 
-    async def publish_alert(self, ip_address):
-        alert_event = {
-            "source": CLIENT_NAME,
-            "type": "SSH_ALERT",
-            "payload": {
-                "message": f"Brute-force attack detected from IP: {ip_address}",
-                "ip_address": ip_address,
-                "block_duration": self.config['block_duration']
-            }
-        }
-        message = json.dumps(alert_event) + "\n"
-        if self._writer:
-            self._writer.write(message.encode())
-            await self._writer.drain()
-            self.logger.info(f"Published SSH_ALERT for IP: {ip_address}")
+    def on_modified(self, event):
+        if event.src_path == self.log_file and self.file:
+            self.check_new_lines()
+
+    def check_new_lines(self):
+        """Lê novas linhas e as processa."""
+        if not self.file:
+            return
+        
+        lines = self.file.readlines()
+        for line in lines:
+            self.process_log_entry(line.strip())
 
     def process_log_entry(self, log_entry):
         match = self.fail_regex.search(log_entry)
-        if match:
-            ip_address = match.group(2)
-            timestamp = time.time()
-
-            if ip_address in self.blocked_ips and self.blocked_ips[ip_address] > timestamp:
-                return
-
-            if ip_address in self.blocked_ips:
-                 del self.blocked_ips[ip_address]
-
-
-            self.failed_attempts[ip_address].append(timestamp)
-            
-            # Check for brute-force attack
-            attempts = self.failed_attempts[ip_address]
-            if len(attempts) >= self.config['threshold']:
-                if (timestamp - attempts[0]) <= self.config['time_window']:
-                    self.logger.warning(f"Brute-force detected from {ip_address}. Publishing alert.")
-                    # Run the alert publishing as a fire-and-forget task
-                    asyncio.create_task(self.publish_alert(ip_address))
-                    self.blocked_ips[ip_address] = timestamp + self.config['block_duration']
-                    attempts.clear()
-
-    async def listen_for_events(self):
-        reader = await self.connect_to_bus()
-        if not reader:
-            self._shutdown.set()
+        if not match:
             return
 
-        while not self._shutdown.is_set():
-            try:
-                data = await reader.readline()
-                if not data:
-                    self.logger.warning("Disconnected from event bus.")
-                    self._shutdown.set()
-                    break
+        ip_address = match.group(1)
+        timestamp = time.time()
 
-                message = data.decode().strip()
-                try:
-                    event = json.loads(message)
-                    # Process only log entries relevant to SSH
-                    if event.get("type") == "LOG_ENTRY":
-                        self.process_log_entry(event.get("payload", ""))
-                    elif event.get("payload") == f"SHUTDOWN:{CLIENT_NAME}":
-                         self.logger.info("Shutdown command received. Exiting.")
-                         self._shutdown.set()
+        # Limpa timestamps antigos da deque
+        attempts = self.failed_attempts[ip_address]
+        while attempts and (timestamp - attempts[0]) > self.config['time_window']:
+            attempts.popleft()
 
-                except json.JSONDecodeError:
-                    # Ignore messages that are not valid JSON
-                    pass
+        # Adiciona nova tentativa
+        attempts.append(timestamp)
 
-            except ConnectionError:
-                self.logger.error("Connection to event bus lost.")
-                self._shutdown.set()
-            except Exception as e:
-                self.logger.error(f"An error occurred while listening for events: {e}")
-                self._shutdown.set()
-        
-        if self._writer:
-            self._writer.close()
-            await self._writer.wait_closed()
+        # Verifica se o IP deve ser bloqueado
+        if ip_address not in self.blocked_ips and len(attempts) >= self.config['threshold']:
+            print(f"ALERTA [SSH]: Múltiplas falhas de login do IP {ip_address}. Possível força bruta.")
+            
+            # Bloqueia o IP
+            block_ip(
+                ip_address, 
+                duration_seconds=self.config['block_duration'],
+                firewall_type=self.config.get('firewall_type', 'ufw')
+            )
+            
+            # Adiciona na lista de bloqueados para evitar re-bloqueio
+            self.blocked_ips[ip_address] = timestamp + self.config['block_duration']
+            
+            # Limpa as tentativas para este IP
+            self.failed_attempts[ip_address].clear()
 
+        # Limpa IPs da lista de bloqueados cujo tempo de bloqueio já expirou
+        self.cleanup_blocked_ips()
 
-async def main():
-    try:
-        with open("modulos_de_defesa/config.yaml", 'r') as f:
-            global_config = yaml.safe_load(f)
-    except FileNotFoundError:
-        logging.error("config.yaml not found. Please ensure it exists.")
+    def cleanup_blocked_ips(self):
+        current_time = time.time()
+        expired_ips = [ip for ip, unblock_time in self.blocked_ips.items() if current_time > unblock_time]
+        for ip in expired_ips:
+            print(f"INFO [SSH]: Período de bloqueio para o IP {ip} expirou.")
+            del self.blocked_ips[ip]
+
+def start_monitor(config):
+    """Inicia o monitoramento do log de autenticação para ataques de força bruta."""
+    log_file = config.get('log_file')
+    if not log_file:
+        print("ERRO [SSH]: 'log_file' para ssh_protection não definido no config.")
         return
 
-    ssh_config = global_config.get('ssh_protection', {})
-    if not ssh_config.get('enabled', False):
-        logging.info("SSH Protection module is disabled in the configuration.")
-        return
+    print(f"Iniciando monitor de SSH no arquivo: {log_file}")
 
-    monitor = SSHMonitor(ssh_config)
-    await monitor.listen_for_events()
-
-
-if __name__ == "__main__":
+    event_handler = SSHLogHandler(config)
+    observer = Observer()
+    
+    log_dir = os.path.dirname(log_file)
+    observer.schedule(event_handler, log_dir, recursive=False)
+    
+    observer.start()
+    print("Monitor de SSH ativo. Pressione Ctrl+C para parar.")
     try:
-        asyncio.run(main())
+        while True:
+            # Roda o cleanup periodicamente
+            event_handler.cleanup_blocked_ips()
+            time.sleep(60)
     except KeyboardInterrupt:
-        logging.info("SSH Monitor shutting down.")
+        observer.stop()
+    observer.join()
+
+if __name__ == '__main__':
+    print("Este módulo foi feito para ser importado e executado pelo main.py")
+    print("Para testar, configure o 'config.yaml' e execute o 'main.py'.")

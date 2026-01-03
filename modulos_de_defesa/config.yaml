@@ -1,8 +1,39 @@
 # Configuração global para os módulos de defesa
-# Exemplo:
+
 ssh_protection:
   enabled: true
-  log_file: test_auth.log
-  threshold: 5
-  time_window: 300
-  block_duration: 3600
+  # Caminho para o arquivo de log de autenticação
+  log_file: /app/logs/auth.log
+  threshold: 5       # Número de falhas de login antes de bloquear
+  time_window: 300   # Janela de tempo em segundos para contar as falhas (5 minutos)
+  block_duration: 3600 # Duração do bloqueio em segundos (1 hora)
+  firewall_type: "ufw" # ou "iptables"
+
+web_attack_protection:
+  enabled: true
+  # Caminho para o arquivo de log do servidor web
+  log_file: /app/logs/access.log 
+  block_duration: 3600 # Duração do bloqueio em segundos (1 hora)
+  firewall_type: "ufw" # ou "iptables"
+
+port_scan_protection:
+  enabled: true
+  # Caminho para o log do firewall
+  log_file: /app/logs/ufw.log
+  # Número de portas distintas acessadas para acionar o bloqueio
+  port_threshold: 20
+  # Janela de tempo em segundos para a contagem de portas (1 minuto)
+  time_window: 60
+  block_duration: 7200 # Duração do bloqueio em segundos (2 horas)
+  firewall_type: "ufw"
+
+dos_protection:
+  enabled: true
+  # Caminho para o log de acesso do servidor web
+  log_file: /app/logs/access.log
+  # Número de requisições do mesmo IP para acionar o bloqueio
+  request_threshold: 100 # Exemplo: 100 requisições
+  # Janela de tempo em segundos para a contagem de requisições (10 segundos)
+  time_window: 10
+  block_duration: 10800 # Duração do bloqueio em segundos (3 horas)
+  firewall_type: "ufw"

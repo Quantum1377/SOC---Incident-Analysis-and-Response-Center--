@@ -1,0 +1,7 @@
+pyyaml
+paramiko
+watchdog
+psutil
+fastapi
+uvicorn
+requests
