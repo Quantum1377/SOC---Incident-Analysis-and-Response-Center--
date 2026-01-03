@@ -5,11 +5,13 @@ import json
 import logging
 import platform
 
+import os
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Event Bus Configuration
-EVENT_BUS_HOST = '127.0.0.1'
+EVENT_BUS_HOST = os.environ.get('EVENT_BUS_HOST', '127.0.0.1')
 EVENT_BUS_PORT = 9999
 
 class EDRClient:

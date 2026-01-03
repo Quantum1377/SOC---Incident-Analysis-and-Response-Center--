@@ -5,7 +5,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 class EventBus:
-    def __init__(self, host='127.0.0.1', port=9999):
+    def __init__(self, host='0.0.0.0', port=9999):
         self._host = host
         self._port = port
         self._writers = []
