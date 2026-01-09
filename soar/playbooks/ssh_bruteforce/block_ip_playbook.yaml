@@ -1,0 +1,41 @@
+# Playbook para resposta a ataques de força bruta SSH
+name: SSH Brute-Force IP Blocking Playbook
+description: Automaticamente bloqueia IPs que realizam ataques de força bruta SSH.
+version: "1.0"
+enabled: true
+
+trigger:
+  event_type: "ssh_brute_force_detected"
+  conditions:
+    - field: "severity"
+      operator: ">="
+      value: "high"
+    - field: "action"
+      operator: "=="
+      value: "block_attempt"
+
+actions:
+  - name: Block Attacker IP
+    type: "firewall_block"
+    parameters:
+      ip_address: "{{ event.source_ip }}"
+      duration_seconds: 3600 # 1 hour
+      firewall_type: "ufw" # ou 'iptables' dependendo da infra
+    on_success:
+      - name: Log to SIEM
+        type: "siem_log"
+        parameters:
+          message: "IP {{ event.source_ip }} bloqueado por ataque de força bruta SSH."
+          severity: "critical"
+      - name: Send Notification
+        type: "notification"
+        parameters:
+          to: "security_team@example.com"
+          subject: "ALERTA: IP Bloqueado por Força Bruta SSH"
+          body: "O IP {{ event.source_ip }} foi automaticamente bloqueado devido a múltiplas tentativas de login SSH falhas."
+    on_failure:
+      - name: Log Failure
+        type: "siem_log"
+        parameters:
+          message: "FALHA ao bloquear IP {{ event.source_ip }} por ataque de força bruta SSH."
+          severity: "error"

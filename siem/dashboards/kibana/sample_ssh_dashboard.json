@@ -1,0 +1,24 @@
+{
+  "attributes": {
+    "title": "SSH Brute-Force Overview - Sample",
+    "hits": 0,
+    "description": "Sample dashboard for SSH brute-force attacks detected by the system.",
+    "panelsJSON": "[]",
+    "version": 1,
+    "timeRestore": false,
+    "timeTo": "now",
+    "timeFrom": "now-24h",
+    "uiStateJSON": "{}",
+    "optionsJSON": "{\"darkTheme\":false}",
+    "autoRefresh": false
+  },
+  "coreMigrationVersion": "7.17.0",
+  "id": "ssh-brute-force-overview-sample",
+  "migrationVersion": {
+    "dashboard": "7.17.0"
+  },
+  "references": [],
+  "type": "dashboard",
+  "updated_at": "2026-01-09T03:03:00.000Z",
+  "version": "WzI4NjksMV0="
+}

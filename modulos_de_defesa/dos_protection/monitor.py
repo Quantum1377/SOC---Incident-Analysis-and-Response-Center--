@@ -4,12 +4,13 @@ import os
 from collections import defaultdict, deque
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from .response import block_ip
+from ..firewall import get_firewall, Firewall
 
 class DoSLogHandler(FileSystemEventHandler):
-    def __init__(self, config):
+    def __init__(self, config, firewall: Firewall, log_file_path: str):
         self.config = config
-        self.log_file = config['log_file']
+        self.firewall = firewall
+        self.log_file = log_file_path
         
         # Estrutura para rastrear requisições: ip -> deque de timestamps
         self.ip_requests = defaultdict(lambda: deque())
@@ -20,19 +21,31 @@ class DoSLogHandler(FileSystemEventHandler):
         # Ex: 127.0.0.1 - - [21/Dec/2025:01:05:00 -0300] "GET /index.html HTTP/1.1" 200 42 "-" "Mozilla/5.0 (...)"
         self.log_regex = re.compile(r'^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})')
 
+        self.file = None
+        self._open_log_file()
+
+    def _open_log_file(self):
+        """Abre o arquivo de log e posiciona o cursor no final."""
         try:
+            # Se o arquivo já estiver aberto, não faça nada
+            if self.file and not self.file.closed:
+                return
             self.file = open(self.log_file, 'r')
-            self.file.seek(0, 2)  # Vai para o final do arquivo
+            self.file.seek(0, 2)
         except FileNotFoundError:
             print(f"ERRO [DoS]: O arquivo de log '{self.log_file}' não foi encontrado.")
             self.file = None
+        except Exception as e:
+            print(f"ERRO [DoS]: Erro inesperado ao abrir o arquivo de log: {e}")
+            self.file = None
 
     def on_modified(self, event):
-        if event.src_path == self.log_file and self.file:
+        if event.src_path == self.log_file:
+            self._open_log_file() # Garante que o arquivo esteja aberto
             self.check_new_lines()
 
     def check_new_lines(self):
-        if not self.file:
+        if not self.file or self.file.closed:
             return
         
         lines = self.file.readlines()
@@ -65,14 +78,13 @@ class DoSLogHandler(FileSystemEventHandler):
             print(f"  --> {len(self.ip_requests[ip_address])} requisições em {self.config['time_window']} segundos.")
             
             # Bloqueia o IP
-            block_ip(
-                ip_address,
-                duration_seconds=self.config['block_duration'],
-                firewall_type=self.config.get('firewall_type', 'ufw')
-            )
-            
-            # Adiciona na lista de bloqueados e remove do rastreamento
-            self.blocked_ips[ip_address] = current_time + self.config['block_duration']
+            block_duration = self.config['block_duration']
+            if self.firewall.block(ip_address, duration_seconds=block_duration):
+                print(f"AÇÃO [DoS]: IP {ip_address} bloqueado por {block_duration} segundos.")
+                self.blocked_ips[ip_address] = current_time + block_duration
+            else:
+                print(f"FALHA [DoS]: Falha ao tentar bloquear o IP {ip_address}.")
+
             del self.ip_requests[ip_address]
 
     def cleanup_blocked_ips(self):
@@ -81,6 +93,10 @@ class DoSLogHandler(FileSystemEventHandler):
         expired_ips = [ip for ip, unblock_time in self.blocked_ips.items() if current_time > unblock_time]
         for ip in expired_ips:
             print(f"INFO [DoS]: Período de bloqueio para o IP {ip} expirou.")
+            if self.firewall.unblock(ip):
+                 print(f"AÇÃO [DoS]: IP {ip} desbloqueado.")
+            else:
+                 print(f"FALHA [DoS]: Falha ao tentar desbloquear o IP {ip}.")
             del self.blocked_ips[ip]
 
 def start_monitor(config):
@@ -90,12 +106,23 @@ def start_monitor(config):
         print("ERRO [DoS]: 'log_file' para dos_protection não definido no config.")
         return
 
-    print(f"Iniciando monitor de DoS/HTTP Flood no arquivo: {log_file}")
+    firewall_type = config.get('firewall_type', 'ufw')
+    try:
+        firewall = get_firewall(firewall_type)
+    except ValueError as e:
+        print(f"ERRO [DoS]: {e}")
+        return
 
-    event_handler = DoSLogHandler(config)
+    print(f"Iniciando monitor de DoS/HTTP Flood no arquivo: {log_file} com firewall: {firewall_type}")
+
+    event_handler = DoSLogHandler(config, firewall, log_file)
     observer = Observer()
     
     log_dir = os.path.dirname(log_file)
+    # Garante que o diretório de log exista antes de iniciar o observer
+    if not os.path.exists(log_dir):
+        print(f"AVISO [DoS]: O diretório de log '{log_dir}' não existe. O monitoramento pode falhar.")
+    
     observer.schedule(event_handler, log_dir, recursive=False)
     
     observer.start()
@@ -106,6 +133,7 @@ def start_monitor(config):
             time.sleep(10) # Pausa para não consumir muito CPU
     except KeyboardInterrupt:
         observer.stop()
+        print("\nINFO [DoS]: Monitor de DoS/HTTP Flood interrompido.")
     observer.join()
 
 if __name__ == '__main__':

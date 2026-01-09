@@ -2,7 +2,7 @@ import yaml
 import threading
 import time
 from ssh_protection import monitor as ssh_monitor
-from web_attack_protection import monitor as web_monitor
+from web_attack_protection import monitor_v2 as web_monitor
 from port_scan_protection import monitor as port_scan_monitor
 from dos_protection import monitor as dos_monitor
 

@@ -34,13 +34,13 @@ def no_sleeps(monkeypatch):
         pass
     monkeypatch.setattr(asyncio, "sleep", no_op_sleep)
 
-@pytest.வதால்(autouse=True)
-async def connection_called_event():
+@pytest.fixture(autouse=True)
+def connection_called_event():
     """An asyncio.Event to signal when open_connection is called."""
     return asyncio.Event()
 
 @pytest.fixture(autouse=True)
-async def file_opened_event():
+def file_opened_event():
     """An asyncio.Event to signal when builtins.open is called."""
     return asyncio.Event()
 
@@ -125,29 +125,24 @@ async def test_tail_and_publish_connection_refused(mock_open_connection, caplog)
         assert "Connection refused. Is the event bus server running?" in caplog.text
 
 @pytest.mark.asyncio
+@patch('asyncio.open_connection')
 @patch('builtins.open', new_callable=mock_open)
 async def test_tail_and_publish_file_not_found(
-    mock_builtins_open, caplog # Need file_opened_event here too
+    mock_builtins_open, mock_open_connection, caplog
 ):
     """Test log producer handles FileNotFoundError."""
-    def _mock_open_side_effect(*args, **kwargs):
-        file_opened_event.set() # Signal that builtins.open was called
-        raise FileNotFoundError
-    mock_builtins_open.side_effect = _mock_open_side_effect
+    mock_reader = AsyncMock(spec=asyncio.StreamReader)
+    mock_writer = MockStreamWriter()
+    mock_open_connection.return_value = (mock_reader, mock_writer)
+
+    mock_builtins_open.side_effect = FileNotFoundError
 
     with caplog.at_level(logging.ERROR):
-        tail_task = asyncio.create_task(tail_log_and_publish())
-        await asyncio.wait_for(file_opened_event.wait(), timeout=1) # Await file open event
+        await tail_log_and_publish()
 
-        # Ensure task is cancelled after error
-        tail_task.cancel()
-        try:
-            await tail_task
-        except asyncio.CancelledError:
-            pass
-
-        mock_builtins_open.assert_called_once_with(LOG_FILE_TO_WATCH, 'r')
-        assert f"Log file not found: {LOG_FILE_TO_WATCH}. Please create it." in caplog.text
+    mock_open_connection.assert_called_once_with(EVENT_BUS_HOST, EVENT_BUS_PORT)
+    mock_builtins_open.assert_called_once_with(LOG_FILE_TO_WATCH, 'r')
+    assert f"Log file not found: {LOG_FILE_TO_WATCH}. Please create it." in caplog.text
 
 @pytest.mark.asyncio
 @patch('asyncio.open_connection')
@@ -177,7 +172,7 @@ async def test_tail_and_publish_exception_during_tailing(
         Exception("Error during readline") # Simulate error
     ]
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.INFO):
         tail_task = asyncio.create_task(tail_log_and_publish())
         await asyncio.wait_for(connection_called_event.wait(), timeout=1)
         await asyncio.wait_for(file_opened_event.wait(), timeout=1)
@@ -191,9 +186,9 @@ async def test_tail_and_publish_exception_during_tailing(
 
         mock_open_connection.assert_called_once()
         mock_builtins_open.assert_called_once()
-        
+
         assert "New log entry found: valid log line" in caplog.text
         assert "An error occurred: Error during readline" in caplog.text
-        
+
         assert mock_writer.is_closing() # Should be closing
         assert len(mock_writer.writes) == 1 # Only the first log line should be sent

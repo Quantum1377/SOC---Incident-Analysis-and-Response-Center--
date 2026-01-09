@@ -1,7 +1,7 @@
-pyyaml
-paramiko
-watchdog
-psutil
-fastapi
-uvicorn
-requests
+pyyaml==6.0.3
+paramiko==4.0.0
+watchdog==4.0.1
+psutil==7.2.1
+fastapi==0.110.0
+uvicorn==0.29.0
+requests==2.31.0
