@@ -21,6 +21,7 @@ class TestSSHProtection(unittest.TestCase):
             f.write("")
 
         self.mock_firewall = MockFirewall()
+        self.mock_event_client = MagicMock()
         self.config = {
             'log_file': self.log_file_path,
             'threshold': 3,
@@ -29,7 +30,7 @@ class TestSSHProtection(unittest.TestCase):
             'firewall_type': 'mock'
         }
         # Instancia o handler para o teste
-        self.handler = SSHLogHandler(self.config, self.mock_firewall, self.log_file_path)
+        self.handler = SSHLogHandler(self.config, self.mock_firewall, self.log_file_path, self.mock_event_client)
         
         # Mock de time.time para controlar o tempo nos testes
         self.mock_time = 0

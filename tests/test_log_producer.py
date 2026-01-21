@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, patch, mock_open, call
+from unittest.mock import AsyncMock, patch, mock_open, call, ANY
 import logging
 import json
 import io
@@ -82,7 +82,7 @@ async def test_tail_and_publish_success(
         await asyncio.wait_for(connection_called_event.wait(), timeout=1)
         await asyncio.wait_for(file_opened_event.wait(), timeout=1)
         
-        mock_open_connection.assert_called_once_with(EVENT_BUS_HOST, EVENT_BUS_PORT)
+        mock_open_connection.assert_called_once_with(EVENT_BUS_HOST, EVENT_BUS_PORT, ssl=ANY)
         mock_builtins_open.assert_called_once_with(LOG_FILE_TO_WATCH, 'r')
         mock_file_handle.seek.assert_called_once_with(0, 2) # Initial seek to end
 
@@ -121,7 +121,7 @@ async def test_tail_and_publish_connection_refused(mock_open_connection, caplog)
     with caplog.at_level(logging.ERROR):
         await tail_log_and_publish()
 
-        mock_open_connection.assert_called_once_with(EVENT_BUS_HOST, EVENT_BUS_PORT)
+        mock_open_connection.assert_called_once_with(EVENT_BUS_HOST, EVENT_BUS_PORT, ssl=ANY)
         assert "Connection refused. Is the event bus server running?" in caplog.text
 
 @pytest.mark.asyncio
@@ -140,7 +140,7 @@ async def test_tail_and_publish_file_not_found(
     with caplog.at_level(logging.ERROR):
         await tail_log_and_publish()
 
-    mock_open_connection.assert_called_once_with(EVENT_BUS_HOST, EVENT_BUS_PORT)
+    mock_open_connection.assert_called_once_with(EVENT_BUS_HOST, EVENT_BUS_PORT, ssl=ANY)
     mock_builtins_open.assert_called_once_with(LOG_FILE_TO_WATCH, 'r')
     assert f"Log file not found: {LOG_FILE_TO_WATCH}. Please create it." in caplog.text
 

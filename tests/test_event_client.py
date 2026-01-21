@@ -1,8 +1,9 @@
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch, call, ANY
 from event_client import EventClient
 import logging
+
 
 
 
@@ -29,7 +30,7 @@ async def test_connect_success(mock_open_connection, event_client_instance):
 
     reader, writer = await event_client_instance.connect()
 
-    mock_open_connection.assert_called_once_with('127.0.0.1', 9999)
+    mock_open_connection.assert_called_once_with('127.0.0.1', 9999, ssl=ANY)
     assert event_client_instance._writer is mock_writer
     assert reader is mock_reader
     assert writer is mock_writer
@@ -43,7 +44,7 @@ async def test_connect_connection_refused(mock_open_connection, event_client_ins
     with caplog.at_level(logging.ERROR):
         reader, writer = await event_client_instance.connect()
 
-        mock_open_connection.assert_called_once_with('127.0.0.1', 9999)
+        mock_open_connection.assert_called_once_with('127.0.0.1', 9999, ssl=ANY)
         assert event_client_instance._writer is None
         assert reader is None
         assert writer is None
@@ -58,7 +59,7 @@ async def test_connect_generic_exception(mock_open_connection, event_client_inst
     with caplog.at_level(logging.ERROR):
         reader, writer = await event_client_instance.connect()
 
-        mock_open_connection.assert_called_once_with('127.0.0.1', 9999)
+        mock_open_connection.assert_called_once_with('127.0.0.1', 9999, ssl=ANY)
         assert event_client_instance._writer is None
         assert reader is None
         assert writer is None

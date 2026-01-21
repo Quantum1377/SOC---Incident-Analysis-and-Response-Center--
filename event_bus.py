@@ -6,12 +6,15 @@ import ssl
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 class EventBus:
-    def __init__(self, host='0.0.0.0', port=9999):
+    def __init__(self, host='0.0.0.0', port=9999, use_ssl=True):
         self._host = host
         self._port = port
         self._writers = []
         self.logger = logging.getLogger('EventBus')
-        self._ssl_context = self._create_ssl_context() # New: Create SSL context
+        if use_ssl:
+            self._ssl_context = self._create_ssl_context() # New: Create SSL context
+        else:
+            self._ssl_context = None
 
     def _create_ssl_context(self):
         """Creates an SSL context for the server."""
@@ -79,7 +82,7 @@ class EventBus:
             self.handle_client,
             self._host,
             self._port,
-            ssl=self._ssl_context # New: Pass SSL context
+            ssl=self._ssl_context if self._ssl_context else None # New: Pass SSL context
         )
         addr = server.sockets[0].getsockname()
         self.logger.info(f"Event bus server started on {addr}")

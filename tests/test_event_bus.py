@@ -9,7 +9,7 @@ logging.getLogger('EventBus').setLevel(logging.CRITICAL)
 @pytest.fixture
 def event_bus_instance():
     """Provides a fresh EventBus instance for each test."""
-    return EventBus(host='127.0.0.1', port=9999)
+    return EventBus(host='127.0.0.1', port=9999, use_ssl=False)
 
 @pytest.fixture
 def mock_stream_writer():
