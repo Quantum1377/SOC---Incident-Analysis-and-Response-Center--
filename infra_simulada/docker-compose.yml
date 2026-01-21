@@ -74,10 +74,8 @@ services:
       context: ../modulos_de_defesa/edr_simulado
       dockerfile: Dockerfile.server
     container_name: edr_server
-    ports:
-      - "8000:8000"
     volumes:
-      - edr_logs:/app/edr_data.log # Mount volume for logs
+      - ../logs/edr_data.log:/app/edr_data.log # Mount a host file for the log
     environment:
       - EVENT_BUS_HOST=event_bus
     networks:
@@ -92,16 +90,11 @@ services:
       dockerfile: Dockerfile.agent
     container_name: edr_agent
     environment:
-      - SERVER_URL=http://edr_server:8000/ingest # Agent connects to the server service name
       - EVENT_BUS_HOST=event_bus
     depends_on:
-      - edr_server
       - event_bus
     networks:
       - soc_network
-
-volumes:
-  edr_logs: # Define the named volume for EDR logs
 
 networks:
   soc_network:

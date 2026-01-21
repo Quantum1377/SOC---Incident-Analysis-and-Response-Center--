@@ -3,6 +3,7 @@ import yaml
 import json
 import time
 import threading
+import asyncio
 from collections import defaultdict
 from event_client import EventClient # Assumindo que event_client pode ser usado como base
 from modulos_de_defesa.firewall import get_firewall, Firewall, MockFirewall # Usaremos isso para ações de firewall
@@ -10,8 +11,11 @@ from modulos_de_defesa.firewall import get_firewall, Firewall, MockFirewall # Us
 class PlaybookRunner:
     def __init__(self, playbooks_dir, event_bus_host='localhost', event_bus_port=9999):
         self.playbooks_dir = playbooks_dir
-        self.event_client = EventClient(host=event_bus_host, port=event_bus_port)
-        self.playbooks = []
+        self.event_bus_host = event_bus_host
+        self.event_bus_port = event_bus_port
+        self.event_client = None # Will be initialized asynchronously
+        self._reader = None
+        self._writer = None
         self._load_playbooks()
         self.action_handlers = {
             "firewall_block": self._handle_firewall_block,
@@ -109,7 +113,7 @@ class PlaybookRunner:
         # Adicionar outros operadores conforme necessário
         return False
 
-    def _process_event(self, event_json):
+    async def _process_event(self, event_json):
         try:
             event = json.loads(event_json)
             event_type = event.get('type')
@@ -175,33 +179,48 @@ class PlaybookRunner:
         except Exception as e:
             print(f"ERROR processing event: {e}. Event JSON: {event_json}")
 
-    def start(self):
-        print("SOAR Playbook Runner starting...")
-        print("Connecting to Event Bus...")
-        # Start listening for events in a separate thread to avoid blocking
-        listener_thread = threading.Thread(target=self.event_client.listen, args=(self._process_event,))
-        listener_thread.daemon = True
-        listener_thread.start()
-        print("Listening for events from Event Bus.")
-
+    async def _listen_and_process_events(self):
         try:
             while True:
-                time.sleep(1) # Keep main thread alive
-        except KeyboardInterrupt:
-            print("\nSOAR Playbook Runner stopping.")
-            self.event_client.stop_listening() # Need to implement this in EventClient
-            listener_thread.join(timeout=5)
+                data = await self._reader.readline()
+                if not data:
+                    print("Event bus disconnected.")
+                    break
+                message = data.decode().strip()
+                await self._process_event(message)
+        except asyncio.CancelledError:
+            print("Event listener task cancelled.")
+        except Exception as e:
+            print(f"ERROR listening for events: {e}")
+        finally:
+            print("Event listener stopped.")
 
+    async def start(self):
+        print("SOAR Playbook Runner starting...")
+        print("Connecting to Event Bus...")
+        
+        self.event_client = EventClient("PlaybookRunner", self.event_bus_host, self.event_bus_port)
+        self._reader, self._writer = await self.event_client.connect()
+
+        if self._reader and self._writer:
+            print("Successfully connected to Event Bus. Listening for events.")
+            listener_task = asyncio.create_task(self._listen_and_process_events())
+            try:
+                # Keep the main task alive
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                print("Main runner task cancelled.")
+            finally:
+                listener_task.cancel()
+                await listener_task
+                await self.event_client.close()
+        else:
+            print("Failed to connect to Event Bus. Exiting.")
 
 if __name__ == "__main__":
-    # Exemplo de uso:
-    # Crie um diretório 'playbooks' e coloque um arquivo .yaml lá
-    # Exemplo de evento (simulado para testes):
-    # event_bus.publish(json.dumps({
-    #     "type": "ssh_brute_force_detected",
-    #     "payload": {"source_ip": "1.2.3.4", "severity": "high", "action": "block_attempt", "user": "root"}
-    # }))
-    # Certifique-se de que o event_bus esteja rodando
-    
-    runner = PlaybookRunner(playbooks_dir='playbooks', event_bus_host='localhost', event_bus_port=9999)
-    runner.start()
+    playbooks_path = os.path.join(os.path.dirname(__file__), 'playbooks')
+    runner = PlaybookRunner(playbooks_dir=playbooks_path, event_bus_host='localhost', event_bus_port=9999)
+    try:
+        asyncio.run(runner.start())
+    except KeyboardInterrupt:
+        print("\nSOAR Playbook Runner shutting down.")

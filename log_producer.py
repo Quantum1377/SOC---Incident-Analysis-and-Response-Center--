@@ -2,6 +2,7 @@ import asyncio
 import time
 import logging
 import json
+import ssl
 
 EVENT_BUS_HOST = '127.0.0.1'
 EVENT_BUS_PORT = 9999
@@ -12,8 +13,16 @@ async def tail_log_and_publish():
     """Tails a log file and publishes new lines to the event bus."""
     logger = logging.getLogger(CLIENT_NAME)
     
+    # New: Create SSL context
+    ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+    ssl_context.load_verify_locations(
+        cafile="secure_storage/cert.pem"
+    )
+
     try:
-        reader, writer = await asyncio.open_connection(EVENT_BUS_HOST, EVENT_BUS_PORT)
+        reader, writer = await asyncio.open_connection(
+            EVENT_BUS_HOST, EVENT_BUS_PORT, ssl=ssl_context # New: Pass SSL context
+        )
         logger.info(f"Connected to event bus at {EVENT_BUS_HOST}:{EVENT_BUS_PORT}")
     except ConnectionRefusedError:
         logger.error("Connection refused. Is the event bus server running?")

@@ -1,6 +1,7 @@
 
 import asyncio
 import logging
+import ssl
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
@@ -10,6 +11,16 @@ class EventBus:
         self._port = port
         self._writers = []
         self.logger = logging.getLogger('EventBus')
+        self._ssl_context = self._create_ssl_context() # New: Create SSL context
+
+    def _create_ssl_context(self):
+        """Creates an SSL context for the server."""
+        ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ssl_context.load_cert_chain(
+            certfile="secure_storage/cert.pem",
+            keyfile="secure_storage/key.pem"
+        )
+        return ssl_context
 
     async def _broadcast(self, message: str):
         """Sends a message to all connected clients."""
@@ -65,7 +76,10 @@ class EventBus:
     async def start(self):
         """Starts the event bus server."""
         server = await asyncio.start_server(
-            self.handle_client, self._host, self._port
+            self.handle_client,
+            self._host,
+            self._port,
+            ssl=self._ssl_context # New: Pass SSL context
         )
         addr = server.sockets[0].getsockname()
         self.logger.info(f"Event bus server started on {addr}")

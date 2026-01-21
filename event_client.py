@@ -1,6 +1,7 @@
 
 import asyncio
 import logging
+import ssl
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
@@ -12,10 +13,21 @@ class EventClient:
         self.logger = logging.getLogger(f'EventClient-{name}')
         self._writer = None
 
+    def _create_ssl_context(self):
+        """Creates an SSL context for the client."""
+        ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        ssl_context.load_verify_locations(
+            cafile="secure_storage/cert.pem"
+        )
+        return ssl_context
+
     async def connect(self):
         """Connects the client to the event bus."""
         try:
-            reader, writer = await asyncio.open_connection(self._host, self._port)
+            ssl_context = self._create_ssl_context() # New: Create SSL context
+            reader, writer = await asyncio.open_connection(
+                self._host, self._port, ssl=ssl_context # New: Pass SSL context
+            )
             self._writer = writer
             self.logger.info(f"Client {self.name} connected to event bus.")
             return reader, writer

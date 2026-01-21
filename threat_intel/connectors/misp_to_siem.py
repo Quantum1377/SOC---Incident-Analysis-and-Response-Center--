@@ -6,7 +6,7 @@ import os
 
 # --- Configurações ---
 MISP_URL = os.getenv('MISP_URL', 'http://localhost:8080')
-MISP_API_KEY = os.getenv('MISP_API_KEY', 'YOUR_MISP_API_KEY')
+MISP_API_KEY = os.getenv('MISP_API_KEY')
 SIEM_URL = os.getenv('SIEM_URL', 'http://localhost:9200') # URL do Elasticsearch
 
 HEADERS = {

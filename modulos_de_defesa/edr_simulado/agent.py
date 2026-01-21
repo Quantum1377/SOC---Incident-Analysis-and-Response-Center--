@@ -4,8 +4,8 @@ import time
 import json
 import logging
 import platform
-
 import os
+import ssl
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -21,9 +21,20 @@ class EDRClient:
         self._writer = None
         self._shutdown = asyncio.Event()
 
+    def _create_ssl_context(self):
+        """Creates an SSL context for the client."""
+        ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        ssl_context.load_verify_locations(
+            cafile="secure_storage/cert.pem"
+        )
+        return ssl_context
+
     async def connect(self):
         try:
-            self._reader, self._writer = await asyncio.open_connection(EVENT_BUS_HOST, EVENT_BUS_PORT)
+            ssl_context = self._create_ssl_context() # New: Create SSL context
+            self._reader, self._writer = await asyncio.open_connection(
+                EVENT_BUS_HOST, EVENT_BUS_PORT, ssl=ssl_context # New: Pass SSL context
+            )
             logging.info(f"EDR Agent {self.agent_id} connected to event bus.")
             return True
         except ConnectionRefusedError:

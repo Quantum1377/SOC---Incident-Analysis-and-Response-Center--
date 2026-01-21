@@ -5,12 +5,14 @@ from collections import defaultdict, deque
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from ..firewall import get_firewall, Firewall
+from event_client_threaded import EventClientThreaded # MODIFIED: Import new client
 
 class DoSLogHandler(FileSystemEventHandler):
-    def __init__(self, config, firewall: Firewall, log_file_path: str):
+    def __init__(self, config, firewall: Firewall, log_file_path: str, event_client: EventClientThreaded): # MODIFIED: Accept client
         self.config = config
         self.firewall = firewall
         self.log_file = log_file_path
+        self.event_client = event_client # MODIFIED: Store client
         
         # Estrutura para rastrear requisições: ip -> deque de timestamps
         self.ip_requests = defaultdict(lambda: deque())
@@ -73,10 +75,20 @@ class DoSLogHandler(FileSystemEventHandler):
             self.ip_requests[ip_address].popleft()
 
         # Verifica se o threshold de requisições foi atingido
-        if len(self.ip_requests[ip_address]) >= self.config['request_threshold']:
+        request_count = len(self.ip_requests[ip_address])
+        if request_count >= self.config['request_threshold']:
             print(f"ALERTA [DoS]: Ataque de DoS/HTTP Flood detectado do IP {ip_address}")
-            print(f"  --> {len(self.ip_requests[ip_address])} requisições em {self.config['time_window']} segundos.")
+            print(f"  --> {request_count} requisições em {self.config['time_window']} segundos.")
             
+            # MODIFIED: Send event to event bus
+            event_payload = {
+                "source_ip": ip_address,
+                "request_count": request_count,
+                "time_window": self.config['time_window'],
+                "severity": "critical"
+            }
+            self.event_client.send_event_threadsafe("dos_attack_detected", event_payload)
+
             # Bloqueia o IP
             block_duration = self.config['block_duration']
             if self.firewall.block(ip_address, duration_seconds=block_duration):
@@ -113,9 +125,14 @@ def start_monitor(config):
         print(f"ERRO [DoS]: {e}")
         return
 
+    # MODIFIED: Initialize and start the event client
+    event_client = EventClientThreaded(name="DoSProtectionMonitor")
+    time.sleep(2)
+
     print(f"Iniciando monitor de DoS/HTTP Flood no arquivo: {log_file} com firewall: {firewall_type}")
 
-    event_handler = DoSLogHandler(config, firewall, log_file)
+    # MODIFIED: Pass client to handler
+    event_handler = DoSLogHandler(config, firewall, log_file, event_client)
     observer = Observer()
     
     log_dir = os.path.dirname(log_file)
@@ -132,9 +149,13 @@ def start_monitor(config):
             event_handler.cleanup_blocked_ips()
             time.sleep(10) # Pausa para não consumir muito CPU
     except KeyboardInterrupt:
-        observer.stop()
         print("\nINFO [DoS]: Monitor de DoS/HTTP Flood interrompido.")
-    observer.join()
+    finally:
+        observer.stop()
+        observer.join()
+        event_client.close() # MODIFIED: Close client connection
+        print("INFO [DoS]: Recursos liberados.")
+
 
 if __name__ == '__main__':
     print("Este módulo foi feito para ser importado e executado pelo main.py")

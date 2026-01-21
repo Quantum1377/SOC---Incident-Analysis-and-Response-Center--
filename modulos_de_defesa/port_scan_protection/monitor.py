@@ -5,12 +5,14 @@ from collections import defaultdict
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from ..firewall import get_firewall, Firewall
+from event_client_threaded import EventClientThreaded # MODIFIED: Import new client
 
 class PortScanLogHandler(FileSystemEventHandler):
-    def __init__(self, config, firewall: Firewall, log_file_path: str):
+    def __init__(self, config, firewall: Firewall, log_file_path: str, event_client: EventClientThreaded): # MODIFIED: Accept client
         self.config = config
         self.firewall = firewall
         self.log_file = log_file_path
+        self.event_client = event_client # MODIFIED: Store client
         
         # Estrutura para rastrear tentativas: 
         # ip -> {'timestamp': first_seen, 'ports': {port1, port2, ...}}
@@ -77,10 +79,21 @@ class PortScanLogHandler(FileSystemEventHandler):
         self.ip_attempts[ip_address]['timestamp'] = first_seen # Garante que timestamp seja definido
         
         if (current_time - first_seen) <= self.config['time_window']:
-            if len(self.ip_attempts[ip_address]['ports']) >= self.config['port_threshold']:
+            port_count = len(self.ip_attempts[ip_address]['ports'])
+            if port_count >= self.config['port_threshold']:
                 print(f"ALERTA [PortScan]: Varredura de portas detectada do IP {ip_address}")
-                print(f"  --> Atingiu {len(self.ip_attempts[ip_address]['ports'])} portas distintas.")
+                print(f"  --> Atingiu {port_count} portas distintas.")
                 
+                # MODIFIED: Send event to event bus
+                event_payload = {
+                    "source_ip": ip_address,
+                    "port_count": port_count,
+                    "ports_scanned": sorted(list(self.ip_attempts[ip_address]['ports'])),
+                    "time_window": self.config['time_window'],
+                    "severity": "medium"
+                }
+                self.event_client.send_event_threadsafe("port_scan_detected", event_payload)
+
                 # Bloqueia o IP
                 block_duration = self.config['block_duration']
                 if self.firewall.block(ip_address, duration_seconds=block_duration):
@@ -128,9 +141,14 @@ def start_monitor(config):
         print(f"ERRO [PortScan]: {e}")
         return
 
+    # MODIFIED: Initialize and start the event client
+    event_client = EventClientThreaded(name="PortScanMonitor")
+    time.sleep(2)
+
     print(f"Iniciando monitor de varredura de portas no arquivo: {log_file} com firewall: {firewall_type}")
 
-    event_handler = PortScanLogHandler(config, firewall, log_file)
+    # MODIFIED: Pass client to handler
+    event_handler = PortScanLogHandler(config, firewall, log_file, event_client)
     observer = Observer()
     
     log_dir = os.path.dirname(log_file)
@@ -146,9 +164,13 @@ def start_monitor(config):
             event_handler.cleanup_blocked_ips() # Chamada periódica para desbloqueio
             time.sleep(60) # Pausa para não consumir muito CPU
     except KeyboardInterrupt:
-        observer.stop()
         print("\nINFO [PortScan]: Monitor de varredura de portas interrompido.")
-    observer.join()
+    finally:
+        observer.stop()
+        observer.join()
+        event_client.close() # MODIFIED: Close client connection
+        print("INFO [PortScan]: Recursos liberados.")
+
 
 if __name__ == '__main__':
     print("Este módulo foi feito para ser importado e executado pelo main.py")

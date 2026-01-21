@@ -5,12 +5,14 @@ from collections import defaultdict, deque
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from ..firewall import get_firewall, Firewall
+from event_client_threaded import EventClientThreaded # MODIFIED: Import new client
 
 class SSHLogHandler(FileSystemEventHandler):
-    def __init__(self, config, firewall: Firewall, log_file_path: str):
+    def __init__(self, config, firewall: Firewall, log_file_path: str, event_client: EventClientThreaded): # MODIFIED: Accept client
         self.config = config
         self.firewall = firewall
         self.log_file = log_file_path
+        self.event_client = event_client # MODIFIED: Store client
         self.failed_attempts = defaultdict(lambda: deque())
         self.blocked_ips = {} # IP -> unblock_time
 
@@ -71,6 +73,20 @@ class SSHLogHandler(FileSystemEventHandler):
         if ip_address not in self.blocked_ips and len(attempts) >= self.config['threshold']:
             print(f"ALERTA [SSH]: Múltiplas falhas de login do IP {ip_address}. Possível força bruta.")
             
+            # MODIFIED: Send event to event bus
+            event_payload = {
+                "source_ip": ip_address,
+                "target_service": "ssh",
+                "attempt_count": len(attempts),
+                "time_window": self.config['time_window'],
+                "severity": "high",
+                "action": "block_attempt" # To trigger the SOAR playbook
+            }
+            self.event_client.send_event_threadsafe("ssh_brute_force_detected", event_payload)
+            
+            # O bloqueio agora será feito pelo SOAR. A lógica local pode ser desativada
+            # ou mantida como fallback. Por enquanto, vamos manter.
+            
             # Bloqueia o IP usando a abstração do firewall
             block_duration = self.config['block_duration']
             if self.firewall.block(ip_address, duration_seconds=block_duration):
@@ -112,9 +128,15 @@ def start_monitor(config):
         print(f"ERRO [SSH]: {e}")
         return
 
+    # MODIFIED: Initialize and start the event client
+    event_client = EventClientThreaded(name="SSHProtectionMonitor")
+    # Small delay to ensure client can try to connect
+    time.sleep(2)
+
     print(f"Iniciando monitor de SSH no arquivo: {log_file} com firewall: {firewall_type}")
 
-    event_handler = SSHLogHandler(config, firewall, log_file)
+    # MODIFIED: Pass client to handler
+    event_handler = SSHLogHandler(config, firewall, log_file, event_client)
     observer = Observer()
     
     log_dir = os.path.dirname(log_file)
@@ -133,9 +155,13 @@ def start_monitor(config):
             event_handler.cleanup_blocked_ips()
             time.sleep(60)
     except KeyboardInterrupt:
-        observer.stop()
         print("\nINFO [SSH]: Monitor de SSH interrompido.")
-    observer.join()
+    finally:
+        observer.stop()
+        observer.join()
+        event_client.close() # MODIFIED: Close client connection
+        print("INFO [SSH]: Recursos liberados.")
+
 
 if __name__ == '__main__':
     print("Este módulo foi feito para ser importado e executado pelo main.py")
